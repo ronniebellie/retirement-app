@@ -1,0 +1,300 @@
+<?php
+// Defaults
+$asOfDateStr = date('Y-m-d'); // Date the current portfolio value is measured (YYYY-MM-DD)
+$currentPortfolio = 1375054;  // current portfolio value as of $asOfDateStr
+
+$withdrawalStartDateStr = '2027-01-01'; // Start date of withdrawals (YYYY-MM-DD)
+
+$rate  = 0.08;
+$years = 10;
+$targetAnnualSpending = 106640.40; // comparison-only spending target
+$withdrawRate = 0.04;
+$firstYearWithdrawal = 50000;
+$ssStartYear = 2027;
+$ssInitialIncome = 56825; // annual SS income at start
+$ssCola = 0.028; // annual COLA
+$compounding = 'daily'; // 'daily' (Vanguard-style) or 'annual'
+
+// Derived
+$start = 0.0; // projected portfolio balance at withdrawal start date (computed below)
+
+// Handle POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (isset($_POST['withdrawal_start_date'])) {
+        $candidate = trim((string) $_POST['withdrawal_start_date']);
+        $dt = DateTime::createFromFormat('Y-m-d', $candidate);
+        if ($dt !== false && $dt->format('Y-m-d') === $candidate) {
+            $withdrawalStartDateStr = $candidate;
+        }
+    }
+    if (isset($_POST['as_of_date'])) {
+        $candidate = trim((string) $_POST['as_of_date']);
+        $dt = DateTime::createFromFormat('Y-m-d', $candidate);
+        if ($dt !== false && $dt->format('Y-m-d') === $candidate) {
+            $asOfDateStr = $candidate;
+        }
+    }
+    if (isset($_POST['rate'])) {
+        $rate = ((float) $_POST['rate']) / 100;
+    }
+    if (isset($_POST['current_portfolio'])) {
+        $currentPortfolio = (float) $_POST['current_portfolio'];
+    }
+    if (isset($_POST['years'])) {
+        $years = (int) $_POST['years'];
+    }
+    if (isset($_POST['target_annual_spending'])) {
+        $targetAnnualSpending = (float) $_POST['target_annual_spending'];
+    }
+    if (isset($_POST['withdraw_rate'])) {
+        $withdrawRate = ((float) $_POST['withdraw_rate']) / 100;
+    }
+    if (isset($_POST['compounding'])) {
+        $value = $_POST['compounding'];
+        $compounding = ($value === 'annual' || $value === 'daily') ? $value : 'daily';
+    }
+    if (isset($_POST['first_year_withdrawal'])) {
+        $firstYearWithdrawal = (float) $_POST['first_year_withdrawal'];
+    }
+    if (isset($_POST['ss_start_year'])) {
+        $ssStartYear = (int) $_POST['ss_start_year'];
+    }
+    if (isset($_POST['ss_initial_income'])) {
+        $ssInitialIncome = (float) $_POST['ss_initial_income'];
+    }
+    if (isset($_POST['ss_cola'])) {
+        $ssCola = ((float) $_POST['ss_cola']) / 100;
+    }
+}
+
+$withdrawalStartDate = new DateTime($withdrawalStartDateStr);
+
+$asOfDate = new DateTime($asOfDateStr);
+
+// If the as-of date is after the withdrawal start date, clamp to avoid negative growth periods
+if ($asOfDate > $withdrawalStartDate) {
+    $asOfDate = clone $withdrawalStartDate;
+    $asOfDateStr = $asOfDate->format('Y-m-d');
+}
+
+$daysToStart = (int) $asOfDate->diff($withdrawalStartDate)->format('%a');
+
+if ($daysToStart <= 0) {
+    $start = $currentPortfolio;
+} else {
+    if ($compounding === 'daily') {
+        $start = $currentPortfolio * pow(1 + ($rate / 365), $daysToStart);
+    } else {
+        // annual compounding approximation for a partial period
+        $start = $currentPortfolio * pow(1 + $rate, ($daysToStart / 365));
+    }
+}
+
+$withdrawalMonth = (int) $withdrawalStartDate->format('n');
+$withdrawalDay   = (int) $withdrawalStartDate->format('j');
+$withdrawalMonthDayLabel = $withdrawalStartDate->format('M j, Y');
+$withdrawalMonthDayShort = $withdrawalStartDate->format('M j');
+
+$startYear = (int) $withdrawalStartDate->format('Y');
+$startDate = clone $withdrawalStartDate;
+$endOfFirstYear = new DateTime($startYear . '-12-31');
+$daysRemainingFirstYear = (int) $startDate->diff($endOfFirstYear)->format('%a') + 1;
+
+// Build projection rows
+$rows = [];
+$current = $start;
+$currentSsIncome = 0.0;
+
+for ($i = 0; $i < $years; $i++) {
+    $year = $startYear + $i;
+
+    if ($year < $ssStartYear) {
+        $ssIncome = 0.0;
+    } elseif ($year === $ssStartYear) {
+        $ssIncome = $ssInitialIncome;
+        $currentSsIncome = $ssInitialIncome;
+    } else {
+        $currentSsIncome = $currentSsIncome * (1 + $ssCola);
+        $ssIncome = $currentSsIncome;
+    }
+
+    if ($year === $startYear) {
+        $withdrawal = $firstYearWithdrawal;
+    } else {
+        $withdrawal = $current * $withdrawRate;
+    }
+
+    $afterWithdrawal = $current - $withdrawal;
+
+    if ($i === 0 && $compounding === 'daily') {
+        $growthFactor = pow(1 + ($rate / 365), $daysRemainingFirstYear);
+    } else {
+        $growthFactor = ($compounding === 'daily') ? pow(1 + ($rate / 365), 365) : (1 + $rate);
+    }
+
+    $end = $afterWithdrawal * $growthFactor;
+
+    $withdrawalDateForRow = new DateTime();
+    $withdrawalDateForRow->setDate($year, $withdrawalMonth, $withdrawalDay);
+    $withdrawalDateLabel = $withdrawalDateForRow->format('M j');
+
+    $rows[] = [
+        'year'             => $year,
+        'start'            => $current,
+        'withdrawal'       => $withdrawal,
+        'after_withdrawal' => $afterWithdrawal,
+        'end'              => $end,
+        'withdrawal_date'  => $withdrawalDateLabel,
+        'ss_income'        => $ssIncome,
+        'total_income'     => ($withdrawal + $ssIncome),
+        'surplus'          => (($withdrawal + $ssIncome) - $targetAnnualSpending)
+    ];
+
+    $current = $end;
+}
+?>
+<link rel="stylesheet" href="/retirement-app/public/css/style.css">
+
+<h1 style="text-align: center; margin-top: 10px;">Retirement Income Projection</h1>
+<p style="max-width: 900px; margin: 12px auto 24px auto; line-height: 1.5;">
+    This tool is designed to explore retirement as a stable income system rather than a year-by-year optimization exercise.
+    It models a fixed portfolio withdrawal policy alongside external income such as Social Security, allowing you to see how
+    those income sources combine to produce a sustainable annual “salary” over time. The goal is not to predict markets or
+    minimize withdrawals, but to test whether a chosen income policy supports real-world spending needs while maintaining
+    long-term portfolio health.
+</p>
+<form method="post" action="">
+    <label>
+        As-of Date (Current Portfolio Value):
+        <input type="date" name="as_of_date" value="<?= $asOfDateStr ?>" onchange="this.form.submit()">
+    </label>
+    <br><br>
+
+    <label>
+        Current Portfolio Value (<?= htmlspecialchars((new DateTime($asOfDateStr))->format('M j, Y')) ?>):
+        <input type="number" name="current_portfolio" step="0.01" value="<?= $currentPortfolio ?>">
+    </label>
+    <br><br>
+
+    <label>
+        Start Date of Portfolio Withdrawals:
+        <input type="date" name="withdrawal_start_date" value="<?= $withdrawalStartDateStr ?>" onchange="this.form.submit()">
+    </label>
+    <br><br>
+
+    <label>
+        Projected Portfolio Balance at Start of Withdrawals (<?= htmlspecialchars($withdrawalMonthDayLabel) ?>):
+        <input type="number" step="0.01" value="<?= number_format($start, 2, '.', '') ?>" readonly>
+    </label>
+    <br><br>
+
+    <h2>Investment & Withdrawal Assumptions</h2>
+
+    <label>
+        Annual Return Rate (%):
+        <input type="number" name="rate" step="0.01" value="<?= $rate * 100 ?>">
+    </label>
+    <br><br>
+
+    <label>
+        Compounding:
+        <select name="compounding">
+            <option value="daily" <?= ($compounding === 'daily') ? 'selected' : '' ?>>Daily (Vanguard-style)</option>
+            <option value="annual" <?= ($compounding === 'annual') ? 'selected' : '' ?>>Annual</option>
+        </select>
+    </label>
+    <br><br>
+
+    <label>
+        First Year Withdrawal ($):
+        <input type="number" name="first_year_withdrawal" step="1" value="<?= $firstYearWithdrawal ?>">
+    </label>
+    <br><br>
+
+    <label>
+        Withdrawal Rate (%):
+        <input type="number" name="withdraw_rate" step="0.01" value="<?= $withdrawRate * 100 ?>">
+    </label>
+    <br><br>
+
+    <label>
+        Number of Years:
+        <input type="number" name="years" step="1" value="<?= $years ?>">
+    </label>
+    <br><br>
+
+    <label>
+        Target Annual Spending ($):
+        <input type="number" name="target_annual_spending" step="1" value="<?= number_format($targetAnnualSpending, 2, '.', '') ?>">
+    </label>
+    <br><br>
+
+    <h2>Social Security Income</h2>
+
+    <label>
+        Social Security Start Year:
+        <input type="number" name="ss_start_year" step="1" value="<?= $ssStartYear ?>">
+    </label>
+    <br><br>
+
+    <label>
+        Estimated Annual Social Security Income at Start ($):
+        <input type="number" name="ss_initial_income" step="1" value="<?= $ssInitialIncome ?>">
+    </label>
+    <br><br>
+
+    <label>
+        Estimated Annual COLA (%):
+        <input type="number" name="ss_cola" step="0.01" value="<?= $ssCola * 100 ?>">
+    </label>
+    <br><br>
+
+    <button type="submit">Recalculate</button>
+</form>
+
+<hr>
+
+<h3 style="font-weight: 600;">Retirement Projection Values</h3>
+
+<p>Current Portfolio Value (<?= htmlspecialchars((new DateTime($asOfDateStr))->format('M j, Y')) ?>): $<?= number_format(round($currentPortfolio), 0) ?></p>
+<p>Projected Starting Balance (<?= htmlspecialchars($withdrawalMonthDayLabel) ?>): $<?= number_format(round($start), 0) ?></p>
+
+<h4 style="font-weight: 600; margin-top: 14px;">Income Assumptions</h4>
+<p>Social Security Start Year: <?= $ssStartYear ?></p>
+<p>Estimated Social Security Income (first year): $<?= number_format(round($ssInitialIncome), 0) ?></p>
+<p>Estimated Annual COLA: <?= number_format($ssCola * 100, 2) ?>%</p>
+
+<h4 style="font-weight: 600; margin-top: 14px;">Investment & Withdrawal Assumptions</h4>
+<p>Annual Return Rate: <?= number_format($rate * 100, 2) ?>%</p>
+<p>Compounding: <?= ($compounding === 'daily') ? 'Daily (Vanguard-style)' : 'Annual' ?></p>
+<p>First Year Withdrawal: $<?= number_format(round($firstYearWithdrawal), 0) ?></p>
+<p>Withdrawal Rate: <?= number_format($withdrawRate * 100, 2) ?>%</p>
+
+<table border="1" cellpadding="6" cellspacing="0">
+    <tr>
+        <th>Year</th>
+        <th>Start Balance</th>
+        <th>Withdrawal (<?= htmlspecialchars($withdrawalMonthDayShort) ?>)</th>
+        <th>Social Security Income</th>
+        <th>Total Pre-Tax Income</th>
+        <th>Surplus / (Shortfall)</th>
+        <th>Balance After Withdrawal</th>
+        <th>End Balance</th>
+    </tr>
+    <?php foreach ($rows as $row): ?>
+        <tr>
+            <td><?= $row['year'] ?></td>
+            <td>$<?= number_format(round($row['start']), 0) ?></td>
+            <td>$<?= number_format(round($row['withdrawal']), 0) ?></td>
+            <td>$<?= number_format(round($row['ss_income']), 0) ?></td>
+            <td>$<?= number_format(round($row['total_income']), 0) ?></td>
+            <td>
+                <?= ($row['surplus'] >= 0 ? '$' : '($') ?>
+                <?= number_format(abs(round($row['surplus'])), 0) ?>
+                <?= ($row['surplus'] >= 0 ? '' : ')') ?>
+            </td>
+            <td>$<?= number_format(round($row['after_withdrawal']), 0) ?></td>
+            <td>$<?= number_format(round($row['end']), 0) ?></td>
+        </tr>
+    <?php endforeach; ?>
+</table>
