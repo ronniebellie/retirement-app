@@ -5,7 +5,15 @@
 // - Social Security starts immediately (no start-year field)
 // - Use POST so we don't clutter the URL and we avoid Safari showing a long query string
 
+$sessionStarted = false;
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+    $sessionStarted = true;
+}
+
 $isPost = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
+
+$showResults = (($_GET['show'] ?? '') === '1');
 
 function post_str(string $key, string $default = ''): string {
     if (!isset($_POST[$key])) return $default;
@@ -28,6 +36,27 @@ function post_int(string $key) {
     return (int)$v;
 }
 
+function post_date(string $key) {
+    $v = post_str($key, '');
+    if ($v === '') return '';
+    // Expect HTML date input format: YYYY-MM-DD
+    $dt = DateTime::createFromFormat('Y-m-d', $v);
+    if (!$dt) return '';
+    $errors = DateTime::getLastErrors();
+    if ($errors && ($errors['warning_count'] > 0 || $errors['error_count'] > 0)) return '';
+    return $dt->format('Y-m-d');
+}
+
+function fmt_date(string $ymd): string {
+    if ($ymd === '') return '';
+    try {
+        $d = new DateTime($ymd);
+        return $d->format('m/d/Y');
+    } catch (Exception $e) {
+        return $ymd;
+    }
+}
+
 function pct_to_decimal($pct) {
     if ($pct === '') return '';
     return ((float)$pct) / 100;
@@ -35,6 +64,9 @@ function pct_to_decimal($pct) {
 
 /* Inputs (POST only) */
 $currentPortfolio     = $isPost ? post_float('current_portfolio') : '';
+$portfolioAsOfDate    = $isPost ? post_date('portfolio_as_of_date') : date('Y-m-d');
+$withdrawalDate       = $isPost ? post_date('withdrawal_date') : '';
+
 $ratePct              = $isPost ? post_float('rate') : ''; // percent (e.g., 8)
 
 $firstYearWithdrawal  = $isPost ? post_float('first_year_withdrawal') : '';
@@ -44,6 +76,15 @@ $years                = $isPost ? post_int('years') : '';
 $ssAnnualIncome       = $isPost ? post_float('ss_annual_income') : '';
 $ssColaPct            = $isPost ? post_float('ss_cola') : '';
 
+/* Display-only values for the Results section (so we can clear the form without blanking the results) */
+$displayCurrentPortfolio     = '';
+$displayPortfolioAsOfDate    = '';
+$displayWithdrawalDate       = '';
+$displayFuturePortfolioValue = '';
+$displayRatePct              = '';
+$displaySsAnnualIncome       = '';
+$displaySsColaPct            = '';
+
 /* Percents -> decimals */
 $rate         = ($ratePct === '' ? '' : pct_to_decimal($ratePct));
 $withdrawRate = ($withdrawRatePct === '' ? '' : pct_to_decimal($withdrawRatePct));
@@ -52,6 +93,35 @@ $ssCola       = ($ssColaPct === '' ? '' : pct_to_decimal($ssColaPct));
 /* Derived */
 $start = ($currentPortfolio === '' ? '' : (float)$currentPortfolio);
 $startYear = (int)date('Y');
+
+$futurePortfolioValue = '';
+$daysToWithdrawal = '';
+
+if ($start !== '' && $rate !== '' && $portfolioAsOfDate !== '' && $withdrawalDate !== '') {
+    try {
+        $asOf = new DateTime($portfolioAsOfDate);
+        $wd   = new DateTime($withdrawalDate);
+
+        // Only compute when withdrawal date is same day or later than "as of" date
+        if ($wd >= $asOf) {
+            $interval = $asOf->diff($wd);
+            $daysToWithdrawal = (int)$interval->days;
+
+            // Vanguard-style daily compounding over the exact day count
+            $futurePortfolioValue = (float)$start * pow(1 + ((float)$rate / 365), $daysToWithdrawal);
+
+            // Use the withdrawal date year as the first projection year
+            $startYear = (int)$wd->format('Y');
+
+            // And use the future value as the starting balance for the projection table
+            $start = (float)$futurePortfolioValue;
+        }
+    } catch (Exception $e) {
+        // Leave computed fields blank on invalid dates
+        $futurePortfolioValue = '';
+        $daysToWithdrawal = '';
+    }
+}
 
 /* Build table only when required fields exist */
 $rows = [];
@@ -64,13 +134,19 @@ $canBuildTable =
      $years !== '' &&
      (int)$years >= 1 &&
      $ssAnnualIncome !== '' &&
-     $ssCola !== '');
+     $ssCola !== '' &&
+     $portfolioAsOfDate !== '' &&
+     $withdrawalDate !== '' &&
+     ($futurePortfolioValue !== ''));
 
 $calcError = '';
 if ($isPost && !$canBuildTable) {
     $missing = [];
     if ($start === '') $missing[] = 'Current Portfolio Value ($)';
     if ($rate === '') $missing[] = 'Expected Annual Return Rate (%)';
+    if ($portfolioAsOfDate === '') $missing[] = 'Current Portfolio Value as of Date';
+    if ($withdrawalDate === '') $missing[] = 'Date of Expected Withdrawals from Portfolio';
+    if ($portfolioAsOfDate !== '' && $withdrawalDate !== '' && $futurePortfolioValue === '') $missing[] = 'Withdrawal date must be on or after the portfolio "as of" date';
     if ($firstYearWithdrawal === '') $missing[] = 'First Year Withdrawal ($)';
     if ($withdrawRate === '') $missing[] = 'Withdrawal Rate (%)';
     if ($years === '' || (int)$years < 1) $missing[] = 'Number of Years (must be 1 or more)';
@@ -114,6 +190,55 @@ if ($isPost && $canBuildTable) {
 
         $current = $end;
     }
+
+    // Persist results so the form can clear after refresh (POST/Redirect/GET)
+    $_SESSION['last_results'] = [
+        'rows' => $rows,
+        'summary' => [
+            'currentPortfolio'     => $currentPortfolio,
+            'portfolioAsOfDate'    => $portfolioAsOfDate,
+            'withdrawalDate'       => $withdrawalDate,
+            'futurePortfolioValue' => $futurePortfolioValue,
+            'ratePct'              => $ratePct,
+            'ssAnnualIncome'       => $ssAnnualIncome,
+            'ssColaPct'            => $ssColaPct,
+        ],
+    ];
+
+    header('Location: ' . $_SERVER['PHP_SELF'] . '?show=1#results');
+    exit;
+}
+
+if (!$isPost && $showResults && isset($_SESSION['last_results']['rows'])) {
+    $rows = $_SESSION['last_results']['rows'];
+
+    $summary = $_SESSION['last_results']['summary'] ?? [];
+
+    // Values for display in the Results section
+    $displayCurrentPortfolio     = $summary['currentPortfolio'] ?? '';
+    $displayPortfolioAsOfDate    = $summary['portfolioAsOfDate'] ?? date('Y-m-d');
+    $displayWithdrawalDate       = $summary['withdrawalDate'] ?? '';
+    $displayFuturePortfolioValue = $summary['futurePortfolioValue'] ?? '';
+    $displayRatePct              = $summary['ratePct'] ?? '';
+    $displaySsAnnualIncome       = $summary['ssAnnualIncome'] ?? '';
+    $displaySsColaPct            = $summary['ssColaPct'] ?? '';
+
+    // Clear the form fields after the redirect so Safari refresh does not keep prior inputs
+    $currentPortfolio     = '';
+    $withdrawalDate       = '';
+    $ratePct              = '';
+    $firstYearWithdrawal  = '';
+    $withdrawRatePct      = '';
+    $years                = '';
+    $ssAnnualIncome       = '';
+    $ssColaPct            = '';
+
+    // Keep "as of" date defaulted (today) for convenience
+    $portfolioAsOfDate    = date('Y-m-d');
+
+    // Do not show the inline future-value preview when the form is cleared
+    $futurePortfolioValue = '';
+    $daysToWithdrawal     = '';
 }
 ?>
 <link rel="stylesheet" href="public/css/style.css?v=1">
@@ -132,6 +257,26 @@ Current Portfolio Value ($):
 </label>
 
 <br><br>
+
+<label>
+Current Portfolio Value as of:
+<input type="date" name="portfolio_as_of_date" value="<?= htmlspecialchars($portfolioAsOfDate === '' ? date('Y-m-d') : (string)$portfolioAsOfDate) ?>">
+</label>
+
+<br><br>
+
+<label>
+Date of Expected Withdrawals from Portfolio:
+<input type="date" name="withdrawal_date" value="<?= htmlspecialchars($withdrawalDate === '' ? '' : (string)$withdrawalDate) ?>" min="<?= htmlspecialchars($portfolioAsOfDate === '' ? date('Y-m-d') : (string)$portfolioAsOfDate) ?>">
+</label>
+
+<br><br>
+
+<?php if ($futurePortfolioValue !== '' && $withdrawalDate !== ''): ?>
+<p style="margin: 0 0 18px 0;">
+Future Portfolio Value on <?= htmlspecialchars(fmt_date((string)$withdrawalDate)) ?>: $<?= number_format((float)$futurePortfolioValue, 0) ?>
+</p>
+<?php endif; ?>
 
 <label>
 Expected Annual Return Rate (%):
@@ -192,18 +337,31 @@ Calculate for spreadsheet to appear below.
 </form>
 
 <?php if (!empty($rows)): ?>
+<?php
+$resultsPortfolioAsOfDate = ($displayPortfolioAsOfDate !== '' ? $displayPortfolioAsOfDate : $portfolioAsOfDate);
+$resultsCurrentPortfolio  = ($displayCurrentPortfolio !== '' ? $displayCurrentPortfolio : $currentPortfolio);
+$resultsWithdrawalDate    = ($displayWithdrawalDate !== '' ? $displayWithdrawalDate : $withdrawalDate);
+$resultsFutureValue       = ($displayFuturePortfolioValue !== '' ? $displayFuturePortfolioValue : $futurePortfolioValue);
+$resultsRatePct           = ($displayRatePct !== '' ? $displayRatePct : $ratePct);
+$resultsSsAnnualIncome    = ($displaySsAnnualIncome !== '' ? $displaySsAnnualIncome : $ssAnnualIncome);
+$resultsSsColaPct         = ($displaySsColaPct !== '' ? $displaySsColaPct : $ssColaPct);
+?>
 <hr id="results">
 
 <h3 style="font-weight: 600;">Retirement Projection Values</h3>
 
-<p>Current Portfolio Value: $<?= number_format((float)$currentPortfolio, 0) ?></p>
+<p>Current Portfolio Value as of <?= htmlspecialchars(fmt_date((string)$resultsPortfolioAsOfDate)) ?>: $<?= number_format((float)$resultsCurrentPortfolio, 0) ?></p>
+
+<?php if ($resultsFutureValue !== '' && $resultsWithdrawalDate !== ''): ?>
+<p>Future Portfolio Value on <?= htmlspecialchars(fmt_date((string)$resultsWithdrawalDate)) ?>: $<?= number_format((float)$resultsFutureValue, 0) ?></p>
+<?php endif; ?>
 
 <h4 style="font-weight: 600; margin-top: 14px;">Investment & Return Assumptions</h4>
-<p>Expected Annual Return Rate: <?= htmlspecialchars((string)$ratePct) ?>% (daily compounding, Vanguard-style)</p>
+<p>Expected Annual Return Rate: <?= htmlspecialchars((string)$resultsRatePct) ?>% (daily compounding, Vanguard-style)</p>
 
 <h4 style="font-weight: 600; margin-top: 14px;">Income Assumptions</h4>
-<p>Estimated Annual Social Security Income: $<?= number_format((float)$ssAnnualIncome, 0) ?></p>
-<p>Estimated Annual COLA: <?= number_format((float)$ssColaPct, 2) ?>%</p>
+<p>Estimated Annual Social Security Income: $<?= number_format((float)$resultsSsAnnualIncome, 0) ?></p>
+<p>Estimated Annual COLA: <?= number_format((float)$resultsSsColaPct, 2) ?>%</p>
 
 <table border="1" cellpadding="6" cellspacing="0">
 <tr>
