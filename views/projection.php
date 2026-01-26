@@ -1,5 +1,3 @@
-<!-- DEPLOY TEST: Jan 26 -->
-
 <?php
 // Simplified local version (XAMPP):
 // - No portfolio start date
