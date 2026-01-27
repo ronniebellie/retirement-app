@@ -241,11 +241,12 @@ if (!$isPost && $showResults && isset($_SESSION['last_results']['rows'])) {
     $daysToWithdrawal     = '';
 }
 ?>
-<link rel="stylesheet" href="public/css/style.css?v=1">
+<link rel="stylesheet" href="/retirement-app/public/css/style.css?v=3">
+<div class="page">
 
 <h1 style="text-align: center; margin-top: 10px;">Retirement Income Projection</h1>
 
-<p style="max-width: 1200px; margin: 12px auto 24px auto; line-height: 2;">
+<p class="intro">
 This tool is designed for individuals or couples who have, or will have, retirement income from two main sources: regular Social Security income and withdrawals from a retirement investment account such as a 401(k), IRA, or similar portfolio. By entering assumptions about spending needs, investment growth, inflation, and Social Security COLA, the tool shows how those income sources work together over time. The purpose is not to predict markets, but to help test assumptions and assess whether a chosen withdrawal approach can realistically support retirement expenses over the long term. Investment growth is modeled using Vanguard-style daily compounding.
 </p>
 
@@ -386,3 +387,4 @@ $resultsSsColaPct         = ($displaySsColaPct !== '' ? $displaySsColaPct : $ssC
 <?php endforeach; ?>
 </table>
 <?php endif; ?>
+</div>
