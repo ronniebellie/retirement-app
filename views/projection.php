@@ -241,7 +241,7 @@ if (!$isPost && $showResults && isset($_SESSION['last_results']['rows'])) {
     $daysToWithdrawal     = '';
 }
 ?>
-<link rel="stylesheet" href="/retirement-app/public/css/style.css?v=3">
+<link rel="stylesheet" href="/retirement-app/css/style.css?v=3">
 <div class="page">
 
 <h1 style="text-align: center; margin-top: 10px;">Retirement Income Projection</h1>
