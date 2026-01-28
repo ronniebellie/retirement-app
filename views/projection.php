@@ -200,12 +200,17 @@ if ($isPost && $canBuildTable) {
             'withdrawalDate'       => $withdrawalDate,
             'futurePortfolioValue' => $futurePortfolioValue,
             'ratePct'              => $ratePct,
+            'firstYearWithdrawal'  => $firstYearWithdrawal,
+            'withdrawRatePct'      => $withdrawRatePct,
+            'years'                => $years,
             'ssAnnualIncome'       => $ssAnnualIncome,
             'ssColaPct'            => $ssColaPct,
         ],
     ];
 
-    header('Location: ' . $_SERVER['PHP_SELF'] . '?show=1#results');
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Location: ' . $_SERVER['PHP_SELF'] . '?show=1&ts=' . time() . '#results');
     exit;
 }
 
@@ -223,22 +228,20 @@ if (!$isPost && $showResults && isset($_SESSION['last_results']['rows'])) {
     $displaySsAnnualIncome       = $summary['ssAnnualIncome'] ?? '';
     $displaySsColaPct            = $summary['ssColaPct'] ?? '';
 
-    // Clear the form fields after the redirect so Safari refresh does not keep prior inputs
-    $currentPortfolio     = '';
-    $withdrawalDate       = '';
-    $ratePct              = '';
-    $firstYearWithdrawal  = '';
-    $withdrawRatePct      = '';
-    $years                = '';
-    $ssAnnualIncome       = '';
-    $ssColaPct            = '';
+    // Repopulate form fields from the last run so the user can make small adjustments
+    $currentPortfolio     = $displayCurrentPortfolio;
+    $portfolioAsOfDate    = ($displayPortfolioAsOfDate !== '' ? $displayPortfolioAsOfDate : date('Y-m-d'));
+    $withdrawalDate       = $displayWithdrawalDate;
+    $futurePortfolioValue = $displayFuturePortfolioValue;
 
-    // Keep "as of" date defaulted (today) for convenience
-    $portfolioAsOfDate    = date('Y-m-d');
+    $ratePct              = $displayRatePct;
 
-    // Do not show the inline future-value preview when the form is cleared
-    $futurePortfolioValue = '';
-    $daysToWithdrawal     = '';
+    $firstYearWithdrawal  = $summary['firstYearWithdrawal'] ?? '';
+    $withdrawRatePct      = $summary['withdrawRatePct'] ?? '';
+    $years                = $summary['years'] ?? '';
+
+    $ssAnnualIncome       = $displaySsAnnualIncome;
+    $ssColaPct            = $displaySsColaPct;
 }
 ?>
 <link rel="stylesheet" href="/retirement-app/css/style.css?v=3">
@@ -250,7 +253,7 @@ if (!$isPost && $showResults && isset($_SESSION['last_results']['rows'])) {
 This tool is designed for individuals or couples who have, or will have, retirement income from two main sources: regular Social Security income and withdrawals from a retirement investment account such as a 401(k), IRA, or similar portfolio. By entering assumptions about spending needs, investment growth, inflation, and Social Security COLA, the tool shows how those income sources work together over time. The purpose is not to predict markets, but to help test assumptions and assess whether a chosen withdrawal approach can realistically support retirement expenses over the long term. Investment growth is modeled using Vanguard-style daily compounding.
 </p>
 
-<form method="post" action="">
+<form id="projection-form" method="post" action="">
 
 <label>
 Current Portfolio Value ($):
@@ -388,3 +391,31 @@ $resultsSsColaPct         = ($displaySsColaPct !== '' ? $displaySsColaPct : $ssC
 </table>
 <?php endif; ?>
 </div>
+<script>
+(function () {
+  function isReload() {
+    try {
+      const navEntries = performance.getEntriesByType && performance.getEntriesByType('navigation');
+      if (navEntries && navEntries.length) return navEntries[0].type === 'reload';
+      return performance && performance.navigation && performance.navigation.type === 1;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  if (!isReload()) return;
+
+  const form = document.getElementById('projection-form');
+  if (!form) return;
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  form.querySelectorAll('input[name]').forEach((input) => {
+    if (input.name === 'portfolio_as_of_date') {
+      input.value = today;
+    } else {
+      input.value = '';
+    }
+  });
+})();
+</script>
