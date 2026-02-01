@@ -15,6 +15,52 @@ $isPost = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
 
 $showResults = (($_GET['show'] ?? '') === '1');
 
+$downloadCsv = (($_GET['download'] ?? '') === '1');
+
+// If the user clicks the CSV download link, stream the last generated table as a CSV file.
+// This reads from the session (set during the POST/Redirect/GET flow).
+if (!$isPost && $downloadCsv && isset($_SESSION['last_results']['rows'])) {
+    $rowsForCsv = $_SESSION['last_results']['rows'];
+
+    $filename = 'retirement-projection-' . date('Y-m-d') . '.csv';
+
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+
+    $out = fopen('php://output', 'w');
+
+    // Optional: UTF-8 BOM for Excel compatibility
+    fwrite($out, "\xEF\xBB\xBF");
+
+    // Header row (matches the on-screen table columns)
+    fputcsv($out, [
+        'Year',
+        'Start Balance',
+        'Withdrawal',
+        'Social Security Income',
+        'Total Pre-Tax Income',
+        'Balance After Withdrawal',
+        'End Balance'
+    ]);
+
+    foreach ($rowsForCsv as $r) {
+        fputcsv($out, [
+            (int)($r['year'] ?? 0),
+            isset($r['start']) ? number_format((float)$r['start'], 2, '.', '') : '',
+            isset($r['withdrawal']) ? number_format((float)$r['withdrawal'], 2, '.', '') : '',
+            isset($r['ss_income']) ? number_format((float)$r['ss_income'], 2, '.', '') : '',
+            isset($r['total_income']) ? number_format((float)$r['total_income'], 2, '.', '') : '',
+            isset($r['after_withdrawal']) ? number_format((float)$r['after_withdrawal'], 2, '.', '') : '',
+            isset($r['end']) ? number_format((float)$r['end'], 2, '.', '') : '',
+        ]);
+    }
+
+    fclose($out);
+    exit;
+}
+
 function post_str(string $key, string $default = ''): string {
     if (!isset($_POST[$key])) return $default;
     return trim((string)$_POST[$key]);
@@ -353,6 +399,9 @@ $resultsSsColaPct         = ($displaySsColaPct !== '' ? $displaySsColaPct : $ssC
 <hr id="results">
 
 <h3 style="font-weight: 600;">Retirement Projection Values</h3>
+<p style="margin: 6px 0 18px 0;">
+  <a href="<?= htmlspecialchars($_SERVER['PHP_SELF']) ?>?download=1&amp;ts=<?= time() ?>">Download spreadsheet as CSV</a>
+</p>
 
 <p>Current Portfolio Value as of <?= htmlspecialchars(fmt_date((string)$resultsPortfolioAsOfDate)) ?>: $<?= number_format((float)$resultsCurrentPortfolio, 0) ?></p>
 
