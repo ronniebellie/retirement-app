@@ -296,7 +296,7 @@ if (!$isPost && $showResults && isset($_SESSION['last_results']['rows'])) {
 <h1 style="text-align: center; margin-top: 10px;">Retirement Income Projection</h1>
 
 <p class="intro">
-This tool is designed for individuals or couples who have, or will have, retirement income from two main sources: regular Social Security income and withdrawals from a retirement investment account such as a 401(k), IRA, or similar portfolio. By entering assumptions about spending needs, investment growth, inflation, and Social Security COLA, the tool shows how those income sources work together over time. The purpose is not to predict markets, but to help test assumptions and assess whether a chosen withdrawal approach can realistically support retirement expenses over the long term. Investment growth is modeled using Vanguard-style daily compounding.
+This calculator helps individuals and couples estimate how two major retirement income sources can work together over time: Social Security benefits and withdrawals from an investment portfolio (such as a 401(k) or IRA). Enter your current portfolio value, expected return assumptions, withdrawal approach, and Social Security estimates (including COLA) to generate a year-by-year projection. The results are meant to support planning and “what-if” testing—not to predict markets—so you can see how different assumptions may affect income and portfolio sustainability. Portfolio growth is modeled using Vanguard-style daily compounding.
 </p>
 
 <form id="projection-form" method="post" action="">
