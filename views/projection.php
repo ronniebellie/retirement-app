@@ -290,10 +290,15 @@ if (!$isPost && $showResults && isset($_SESSION['last_results']['rows'])) {
     $ssColaPct            = $displaySsColaPct;
 }
 ?>
-<link rel="stylesheet" href="/retirement-app/css/style.css?v=3">
-<div class="page">
+<link rel="stylesheet" href="/css/styles.css?v=3">
+<div class="page container" style="max-width: 1100px; margin: 0 auto; padding: 24px 24px 40px;">
+<div class="top-nav" style="margin-bottom: 12px;">
+  <a class="home-btn" href="/" style="display:inline-flex; align-items:center; padding:8px 14px; border-radius:999px; border:1px solid #e5e7eb; background:#ffffff; color:#111827; text-decoration:none; font-weight:600; line-height:1; white-space:nowrap;">
+    Return to home page
+  </a>
+</div>
 
-<h1 style="text-align: center; margin-top: 10px;">Retirement Income Projection</h1>
+<h1 style="text-align: center; margin: 0 0 18px 0;">Retirement Income Projection</h1>
 
 <p class="intro">
 This calculator helps individuals and couples estimate how two major retirement income sources can work together over time: Social Security benefits and withdrawals from an investment portfolio (such as a 401(k) or IRA). Enter your current portfolio value, expected return assumptions, withdrawal approach, and Social Security estimates (including COLA) to generate a year-by-year projection. The results are meant to support planning and “what-if” testing—not to predict markets—so you can see how different assumptions may affect income and portfolio sustainability. Portfolio growth is modeled using Vanguard-style daily compounding.
@@ -308,19 +313,39 @@ Current Portfolio Value ($):
 
 <br><br>
 
-<label>
-Current Portfolio Value as of:
-<input type="date" name="portfolio_as_of_date" value="<?= htmlspecialchars($portfolioAsOfDate === '' ? date('Y-m-d') : (string)$portfolioAsOfDate) ?>">
-</label>
+<div style="margin: 12px 0 18px 0;">
+  <label for="portfolio_as_of_date_display" style="display:block; margin-bottom:6px; font-weight:600;">
+    Current Portfolio Value as of:
+  </label>
+  <input
+    type="text"
+    id="portfolio_as_of_date_display"
+    inputmode="numeric"
+    placeholder="MM/DD/YYYY"
+    value="<?= htmlspecialchars($portfolioAsOfDate === '' ? '' : fmt_date((string)$portfolioAsOfDate)) ?>"
+    style="width: 100%; max-width: 260px; padding: 8px;"
+    autocomplete="off"
+  >
+  <input type="hidden" name="portfolio_as_of_date" id="portfolio_as_of_date" value="<?= htmlspecialchars($portfolioAsOfDate === '' ? date('Y-m-d') : (string)$portfolioAsOfDate) ?>">
+  <small style="color: #666; display:block; margin-top:4px;">Type the date (e.g. 01/15/2025)—no calendar scrolling.</small>
+</div>
 
-<br><br>
-
-<label>
-Date of Expected Withdrawals from Portfolio:
-<input type="date" name="withdrawal_date" value="<?= htmlspecialchars($withdrawalDate === '' ? '' : (string)$withdrawalDate) ?>" min="<?= htmlspecialchars($portfolioAsOfDate === '' ? date('Y-m-d') : (string)$portfolioAsOfDate) ?>">
-</label>
-
-<br><br>
+<div style="margin: 0 0 24px 0;">
+  <label for="withdrawal_date_display" style="display:block; margin-bottom:6px; font-weight:600;">
+    Date of Expected Withdrawals from Portfolio:
+  </label>
+  <input
+    type="text"
+    id="withdrawal_date_display"
+    inputmode="numeric"
+    placeholder="MM/DD/YYYY"
+    value="<?= htmlspecialchars($withdrawalDate === '' ? '' : fmt_date((string)$withdrawalDate)) ?>"
+    style="width: 100%; max-width: 260px; padding: 8px;"
+    autocomplete="off"
+  >
+  <input type="hidden" name="withdrawal_date" id="withdrawal_date" value="<?= htmlspecialchars($withdrawalDate === '' ? '' : (string)$withdrawalDate) ?>">
+  <small style="color: #666; display:block; margin-top:4px;">Type date (e.g. 06/01/2026).</small>
+</div>
 
 <?php if ($futurePortfolioValue !== '' && $withdrawalDate !== ''): ?>
 <p style="margin: 0 0 18px 0;">
@@ -386,6 +411,61 @@ Calculate for spreadsheet to appear below.
 
 </form>
 
+<script>
+(function() {
+  function parseToYmd(val) {
+    if (!val || typeof val !== 'string') return '';
+    val = val.trim();
+    var m, d, y;
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(val)) {
+      var p = val.split('-');
+      y = parseInt(p[0], 10);
+      m = parseInt(p[1], 10);
+      d = parseInt(p[2], 10);
+    } else {
+      var parts = val.split(/[\/\-\.]/);
+      if (parts.length >= 3) {
+        if (parts[0].length === 4) {
+          y = parseInt(parts[0], 10);
+          m = parseInt(parts[1], 10);
+          d = parseInt(parts[2], 10);
+        } else {
+          m = parseInt(parts[0], 10);
+          d = parseInt(parts[1], 10);
+          y = parseInt(parts[2], 10);
+        }
+      } else return '';
+    }
+    if (isNaN(m) || isNaN(d) || isNaN(y) || m < 1 || m > 12 || d < 1 || d > 31) return '';
+    var date = new Date(y, m - 1, d);
+    if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return '';
+    return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  }
+  function syncDisplayToHidden(displayId, hiddenId) {
+    var disp = document.getElementById(displayId);
+    var hid = document.getElementById(hiddenId);
+    if (!disp || !hid) return;
+    var ymd = parseToYmd(disp.value);
+    if (ymd) hid.value = ymd;
+  }
+  var form = document.getElementById('projection-form');
+  if (form) {
+    ['portfolio_as_of_date_display', 'withdrawal_date_display'].forEach(function(displayId, i) {
+      var hidId = displayId.replace('_display', '');
+      var disp = document.getElementById(displayId);
+      if (disp) {
+        disp.addEventListener('change', function() { syncDisplayToHidden(displayId, hidId); });
+        disp.addEventListener('blur', function() { syncDisplayToHidden(displayId, hidId); });
+      }
+    });
+    form.addEventListener('submit', function() {
+      syncDisplayToHidden('portfolio_as_of_date_display', 'portfolio_as_of_date');
+      syncDisplayToHidden('withdrawal_date_display', 'withdrawal_date');
+    });
+  }
+})();
+</script>
+
 <?php if (!empty($rows)): ?>
 <?php
 $resultsPortfolioAsOfDate = ($displayPortfolioAsOfDate !== '' ? $displayPortfolioAsOfDate : $portfolioAsOfDate);
@@ -439,6 +519,24 @@ $resultsSsColaPct         = ($displaySsColaPct !== '' ? $displaySsColaPct : $ssC
 <?php endforeach; ?>
 </table>
 <?php endif; ?>
+<hr class="footer-divider" style="margin: 24px 0 0; border: 0; border-top: 1px solid #d0d0d0;">
+<?php
+  // Shared footer (used across all apps)
+  $footerPath = __DIR__ . '/../../../includes/footer.php';
+  if (file_exists($footerPath)) {
+    include $footerPath;
+  } else {
+?>
+  <div class="site-footer">
+    <div class="site-footer__left">© 2026 Ron Belisle</div>
+    <div class="site-footer__right">
+      <span>If these tools are useful, please consider supporting future development.</span>
+      <a class="donate-btn" href="https://www.paypal.com/paypalme/rongbelisle" target="_blank" rel="noopener">Donate</a>
+    </div>
+  </div>
+<?php
+  }
+?>
 </div>
 <script>
 (function () {
@@ -458,13 +556,19 @@ $resultsSsColaPct         = ($displaySsColaPct !== '' ? $displaySsColaPct : $ssC
   if (!form) return;
 
   const today = new Date().toISOString().slice(0, 10);
+  const d = new Date(today);
+  const todayMdY = (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear();
 
   form.querySelectorAll('input[name]').forEach((input) => {
     if (input.name === 'portfolio_as_of_date') {
       input.value = today;
+      var disp = document.getElementById('portfolio_as_of_date_display');
+      if (disp) disp.value = todayMdY;
     } else {
       input.value = '';
     }
   });
+  var withdrawalDisp = document.getElementById('withdrawal_date_display');
+  if (withdrawalDisp) withdrawalDisp.value = '';
 })();
 </script>
